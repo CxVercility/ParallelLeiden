@@ -67,14 +67,6 @@ namespace NetworKit {
             SEQUENTIAL, PARALLEL, EXPERIMENTAL
         };
 
-        void setParallelism(parallelModes localMoving, parallelModes refinement) {
-            this->plMove = localMoving;
-            this->plRefine = refinement;
-        }
-
-        void setMaxThreads(int count) {
-            this->tC = count;
-        }
 
 
     private :
@@ -118,32 +110,19 @@ namespace NetworKit {
 
         Partition experimentalRefine(const Graph &graph);
 
-        static string enumToString(parallelModes mode) {
-            switch (mode) {
-                case SEQUENTIAL:
-                    return "SQ";
-                case PARALLEL:
-                    return "PL";
-                case EXPERIMENTAL:
-                    return "EXP";
-            }
-        }
-
         double inverseGraphVolume; // 1/vol(V)
 
         vector<double> communityVolumes;
 
         vector<vector<node>> mappings;
 
-        double gamma;
+        double gamma;       // Resolution parameter
 
         bool changed = true;
 
         int numberOfIterations;
 
         Aux::SignalHandler handler;
-
-        int tC = omp_get_max_threads();
 
         int rounds = 0;
 

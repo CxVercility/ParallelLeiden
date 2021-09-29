@@ -88,7 +88,6 @@ Partition ParallelLeiden::refineAndMerge(const Graph &graph) {
     vector<double> cutCtoSminusC(refined.upperBound());
     vector<double> refinedVolumes(refined.upperBound());
     vector<index> pointers;
-    auto &mt = Aux::Random::getURNG();
 
     graph.forNodes([&](node Node) {
         graph.forNeighborsOf(Node, [&](node neighbor, edgeweight ew) {

@@ -1,6 +1,3 @@
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
-
 #include "ParallelLeiden.hpp"
 
 #define WORKING_SIZE 1000
@@ -23,12 +20,7 @@ namespace NetworKit {
     void ParallelLeiden::run() {
         if (plMove == EXPERIMENTAL || plRefine == EXPERIMENTAL)
             cerr << "You're using an experimental function that has not been tested thoroughly. Unless you know what you're doing you should be using the standard functions." << endl;
-
-        Aux::setNumberOfThreads(tC);
         cout << "Running leiden Algorithm" << endl;
-        double mv = 0.0;
-        double ref = 0.0;
-        double agg = 0.0;
         auto totalTime = Aux::Timer();
         totalTime.start();
         do {            // Leiden recursion
@@ -41,6 +33,7 @@ namespace NetworKit {
             Partition refined;
             calculateVolumes(*currentGraph);
             do {
+                handler.assureRunning();
                 auto tM = Aux::Timer();
                 tM.start();
                 switch (plMove) {
@@ -56,11 +49,9 @@ namespace NetworKit {
                     default:
                         throw;
                 }
-                mv += tM.elapsedMilliseconds() / 1000.0;
                 done = currentGraph->numberOfNodes() == result.numberOfSubsets();            // If each community consists of exactly one node we're done, i.e. when |V(G)| = |P|
                 if (!done) {
-                    auto tR = Aux::Timer();
-                    tR.start();
+                    handler.assureRunning();
                     switch (plRefine) {
                         case SEQUENTIAL:
                             refined = refineAndMerge(*currentGraph);
@@ -74,21 +65,13 @@ namespace NetworKit {
                         default:
                             throw;
                     }
-
-                    ref += tR.elapsedMilliseconds() / 1000.0;
-                    auto tPPC = Aux::Timer();
-                    tPPC.start();
-
+                    handler.assureRunning();
                     ParallelPartitionCoarsening ppc(*currentGraph, refined);                 //Aggregate graph
                     ppc.run();
                     auto temp = move(ppc.getCoarseGraph());
-                    agg += tPPC.elapsedMilliseconds() / 1000.0;
-
                     auto map = std::move(ppc.getFineToCoarseNodeMapping());
-
                     Partition p(temp.numberOfNodes());                                    // "Maintain Partition" : add every coarse Node to the community its fine Nodes were in
-                    p.setUpperBound(
-                            result.upperBound());                             // this isn't needed for louvain but with leiden 2 coarse Nodes can belong to the same community
+                    p.setUpperBound(result.upperBound());                             // this isn't needed for louvain but with leiden 2 coarse Nodes can belong to the same community
 
                     currentGraph->parallelForNodes([&](node Node) {
                         p[map[Node]] = result[Node];
@@ -102,7 +85,7 @@ namespace NetworKit {
                 PLPRINT("---------------------------------------------------")
             } while (!done);
             flattenPartition();
-            PLPRINT("Leiden done. Modularity: " << setprecision(8) << Modularity().getQuality(result, *G))
+            PLPRINT("Leiden done, took "  << totalTime.elapsedTag() << " Modularity: " << setprecision(8) << Modularity().getQuality(result, *G))
         } while (changed && numberOfIterations > 0);
         hasRun = true;
     }
@@ -223,6 +206,7 @@ namespace NetworKit {
                 shuffle(currentNodes.begin(), currentNodes.end(), mt);
 #pragma omp barrier
             do {
+                handler.assureRunning();
                 for (node Node: currentNodes) {
                     if (resize) {       // This will probably never happen. community IDs may be larger than initial size of vector if new IDs are assigned to singletons
                         waitingForResize++;
@@ -418,15 +402,16 @@ namespace NetworKit {
                     shuffle(nodes.begin() + start, nodes.begin() + end, mt);
 #pragma omp barrier
                 }
+            handler.assureRunning();
 #pragma omp for schedule(dynamic, WORKING_SIZE)
             for (node Node: nodes) {
                 if (Node == none || !singleton[Node]) {              // only consider singletons
                     continue;
                 }
                 index S = result[Node];                               // Node's community ID in the previous partition (S)
-                for (auto z: neighComms) {                             // Reset the clearlist : Set all cutweights to 0
-                    if (z != none)
-                        cutWeights[z] = 0;
+                for (auto neighComm: neighComms) {                             // Reset the clearlist : Set all cutweights to 0
+                    if (neighComm != none)
+                        cutWeights[neighComm] = 0;
                 }
 
                 neighComms.clear();
@@ -465,7 +450,7 @@ namespace NetworKit {
                 double bestDelta = numeric_limits<double>::lowest();
                 int idx;
                 auto bestCommunity = [&] {
-                    for (int i = 0; i < neighComms.size(); i++) {         // Only consider (refined) communities the node is connected to
+                    for (unsigned int i = 0; i < neighComms.size(); i++) {         // Only consider (refined) communities the node is connected to
                         index C = neighComms[i];
                         if (C == none) {
                             continue;
@@ -476,15 +461,15 @@ namespace NetworKit {
                             continue;
                         }
 
-                        auto absC = refinedVolumes[C];
-                        if (delta > bestDelta && cutCtoSminusC[C] >= this->gamma * absC * (communityVolumes[S] - absC) * inverseGraphVolume) { // T-Set Condition
+                        auto volC = refinedVolumes[C];
+                        if (delta > bestDelta && cutCtoSminusC[C] >= this->gamma * volC * (communityVolumes[S] - volC) * inverseGraphVolume) { // T-Set Condition
                             bestDelta = delta;
                             bestC = C;
                             idx = i;
                         }
                     }
                 };
-                auto updateCut = [&] {
+                auto updateCut = [&] {                      // update cut values in case neighbors of this node have moved in the meantime
                     for (node &neighbor: criticalNodes) {
                         if (neighbor != none) {
                             index neighborCommunity = refined[neighbor];

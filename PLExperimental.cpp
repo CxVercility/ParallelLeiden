@@ -156,7 +156,7 @@ Partition ParallelLeiden::experimentalRefine(const Graph &graph) {
     vector<pair<index, index>> intervals;
     index prev = 0;
     index idx = nodes[0].second;
-    for (int i = 1; i < graph.numberOfNodes(); i++) {
+    for (unsigned int i = 1; i < graph.numberOfNodes(); i++) {
         if (nodes[i].second != idx) {
             intervals.emplace_back(prev, i);
             prev = i;
@@ -191,17 +191,17 @@ Partition ParallelLeiden::experimentalRefine(const Graph &graph) {
 
         vector<double> cutWeights(refined.upperBound());
         vector<index> pointers;
-        int z = omp_get_thread_num();
+        unsigned int z = omp_get_thread_num();
         while (z < intervals.size()) {
-            for (int i = intervals[z].first; i < intervals[z].second; i++) {
+            for (unsigned int i = intervals[z].first; i < intervals[z].second; i++) {
                 node Node = nodes[i].first;
                 if (!singleton[Node]) {              // only consider singletons
                     continue;
                 }
                 index S = result[Node];                                                 // Node's community ID in the previous partition (S)
 
-                for (auto z: pointers) {                             // Reset the clearlist : Set all cutweights to 0
-                    cutWeights[z] = 0;
+                for (auto neighComm: pointers) {                             // Reset the clearlist : Set all cutweights to 0
+                    cutWeights[neighComm] = 0;
                 }
                 pointers.clear();
                 double degree = 0;
@@ -211,11 +211,11 @@ Partition ParallelLeiden::experimentalRefine(const Graph &graph) {
                     if (neighbor != Node) {
                         if (S == neighborCluster) {
 
-                            index z = refined[neighbor];
-                            if (cutWeights[z] == 0) {
-                                pointers.push_back(z);        // Keep track of neighbor communities
+                            index neighborComm = refined[neighbor];
+                            if (cutWeights[neighborComm] == 0) {
+                                pointers.push_back(neighborComm);        // Keep track of neighbor communities
                             }
-                            cutWeights[z] += ew;
+                            cutWeights[neighborComm] += ew;
                         }
                     } else {
                         degree += ew;
