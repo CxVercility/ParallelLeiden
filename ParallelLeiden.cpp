@@ -25,32 +25,22 @@ namespace NetworKit {
             cerr << "You're using an experimental function that has not been tested thoroughly. Unless you know what you're doing you should be using the standard functions." << endl;
 
         Aux::setNumberOfThreads(tC);
-#ifdef PLBENCHMARK
-        cerr << "Writing Benchmark results to files. Remove the PLBENCHMARK definition from ParallelLeiden.hpp if this was not intended." << endl;
-        fstream File;
-        filesystem::create_directory(std::filesystem::current_path().string() + "/../../resources/Benchmark-" + enumToString(plMove) + "/" + graphName);
-        File.open(std::filesystem::current_path().string() + "/../../resources/Benchmark-" + enumToString(plMove) + "/" + graphName + "/" + to_string(omp_get_max_threads()) + "C" + graphName, fstream::out | fstream::app);
-#endif
         cout << "Running leiden Algorithm" << endl;
-        double test = 0;
         double mv = 0.0;
         double ref = 0.0;
         double agg = 0.0;
-        auto t = Aux::Timer();
-        t.start();
+        auto totalTime = Aux::Timer();
+        totalTime.start();
         do {            // Leiden recursion
             PLPRINT("Leiden rekursion " << numberOfIterations << " left")
             numberOfIterations--;
             changed = false;
             bool done;                           //have we moved any nodes? If yes, start local moving phase again. Else stop
-            auto tmr = Aux::Timer();
-            tmr.start();
             const Graph *currentGraph = G;
             Graph coarse;
             Partition refined;
             calculateVolumes(*currentGraph);
             do {
-                PLIF(rounds++)
                 auto tM = Aux::Timer();
                 tM.start();
                 switch (plMove) {
@@ -115,14 +105,6 @@ namespace NetworKit {
             PLPRINT("Leiden done. Modularity: " << setprecision(8) << Modularity().getQuality(result, *G))
         } while (changed && numberOfIterations > 0);
         hasRun = true;
-        test += t.elapsedMilliseconds() / 1000.0;
-#ifdef PLBENCHMARK
-        //cout << graphName << " Local Moving: " << mv << " s Refinement: " << ref << " Coarsening: " << agg << " Threads:" << tC << " Total:" << test << "s" << " Rounds: " << rounds << endl;
-        //File << left << setw(15) << graphName << right << setw(15) << etos(plMove) << " Local Moving: " << setw(6) << mv << " s  " << setw(15) << etos(plRefine) << " Refinement: " << setw(7) << ref << "   Coarsening: " << setw(6) << agg
-        //     << "   Threads:" << tC << "   Total:" << setw(6) << test << "s" << "   Rounds: " << rounds << "   Modularity: " << Modularity().getQuality(result, *G) << "   Communities: " << result.numberOfSubsets() << endl;
-        File << setprecision(4) << fixed << test << " " << Modularity().getQuality(result, *G) << " " << result.numberOfSubsets() << " " << mv << " " << ref << " " << agg << "\n";
-        File.close();
-#endif
     }
 
     void ParallelLeiden::calculateVolumes(const Graph &graph) {
@@ -164,8 +146,6 @@ namespace NetworKit {
         auto timer = Aux::Timer();
         timer.start();
 #endif
-        auto timer = Aux::Timer();
-        timer.start();
         if (mappings.empty()) {
             return;
         }
@@ -409,7 +389,7 @@ namespace NetworKit {
         vector<node> nodes(graph.upperNodeIdBound(), none);
 #pragma omp parallel
         {
-            vector<index> pointers;                             // Keeps track of relevant Neighbor communities. Needed to reset the clearlist fast
+            vector<index> neighComms;                             // Keeps track of relevant Neighbor communities. Needed to reset the clearlist fast
             vector<double> cutWeights(refined.upperBound());    // cut from Node to Communities
             auto &mt = Aux::Random::getURNG();
 #pragma omp for
@@ -444,12 +424,12 @@ namespace NetworKit {
                     continue;
                 }
                 index S = result[Node];                               // Node's community ID in the previous partition (S)
-                for (auto z: pointers) {                             // Reset the clearlist : Set all cutweights to 0
+                for (auto z: neighComms) {                             // Reset the clearlist : Set all cutweights to 0
                     if (z != none)
                         cutWeights[z] = 0;
                 }
 
-                pointers.clear();
+                neighComms.clear();
 
                 vector<node> criticalNodes;                                     // Nodes whose community ID equals their Node ID. These are the only ones that can possibly
                 double degree = 0;                                              // affect the cut which we need to update later since only those can be moved (possibly singletons)
@@ -464,7 +444,7 @@ namespace NetworKit {
                             }                                           // We don't need to remember the weight of that edge since it's already saved in cutWeights
 
                             if (cutWeights[z] == 0)
-                                pointers.push_back(z);        // Keep track of neighbor communities
+                                neighComms.push_back(z);        // Keep track of neighbor communities
 
                             cutWeights[z] += ew;
                         }
@@ -485,8 +465,8 @@ namespace NetworKit {
                 double bestDelta = numeric_limits<double>::lowest();
                 int idx;
                 auto bestCommunity = [&] {
-                    for (int i = 0; i < pointers.size(); i++) {         // Only consider (refined) communities the node is connected to
-                        index C = pointers[i];
+                    for (int i = 0; i < neighComms.size(); i++) {         // Only consider (refined) communities the node is connected to
+                        index C = neighComms[i];
                         if (C == none) {
                             continue;
                         }
@@ -510,7 +490,7 @@ namespace NetworKit {
                             index neighborCommunity = refined[neighbor];
                             if (neighborCommunity != neighbor) {
                                 if (cutWeights[neighborCommunity] == 0) {
-                                    pointers.push_back(neighborCommunity);                      // remember to clear the vector, this community was not saved initially since the neighbor moved to it later
+                                    neighComms.push_back(neighborCommunity);                      // remember to clear the vector, this community was not saved initially since the neighbor moved to it later
                                 }
                                 cutWeights[neighborCommunity] += cutWeights[neighbor];     // cutWeights[Neighbor] is the weight of the edge between Node and Neighbor, since Neighbor was a singleton
                                 cutWeights[neighbor] = 0;                          // Clear cutWeights entry beforehand, so we can "erase" bestC from the pointers vector by replacing it with "none"
@@ -527,7 +507,7 @@ namespace NetworKit {
                 if (singleton[Node]) {                                  // If this node is no longer a singleton, stop.
                     while (bestC != none && refined[bestC] != bestC) {  // Target community still contains its "host" node? If not, then this community is now empty, choose a new one.
                         locks[bestC].unlock();
-                        pointers[idx] = none;                           // This makes sure it won't be considered in the next bestCommunity() call
+                        neighComms[idx] = none;                           // This makes sure it won't be considered in the next bestCommunity() call
                         bestC = none;
                         bestDelta = numeric_limits<double>::lowest();
                         updateCut();

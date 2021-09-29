@@ -76,10 +76,6 @@ namespace NetworKit {
             this->tC = count;
         }
 
-        void setGraphName(string name) {
-            this->graphName = std::move(name);
-        }
-
 
     private :
 
@@ -148,8 +144,6 @@ namespace NetworKit {
         Aux::SignalHandler handler;
 
         int tC = omp_get_max_threads();
-
-        string graphName;
 
         int rounds = 0;
 
