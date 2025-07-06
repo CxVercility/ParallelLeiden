@@ -98,6 +98,7 @@ namespace NetworKit {
         // thread safe reduction. Avoid atomic calculation of total graph volume for unweighted graphs. Vol(G) is then 2*|E|
         communityVolumes.clear();
         communityVolumes.resize(result.upperBound() + 10000);
+        inverseGraphVolume = 0.0
         if (graph.isWeighted()) {
             vector<double> threadVolumes(omp_get_max_threads());
             graph.parallelForNodes([&](node a) {
