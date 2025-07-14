@@ -260,7 +260,7 @@ namespace NetworKit {
                         if (0 > maxDelta) {                         // move node to empty community
                             PLIFF(singleton++)
                             bestCommunity = upperBound++;
-                            if (bestCommunity >= communityVolumes.capacity()) {                 // Chances are this will never happen. Ever.
+                            if (bestCommunity >= communityVolumes.size()) {                 // Chances are this will never happen. Ever.
                                 bool expected = false;
                                 if (resize.compare_exchange_strong(expected, true)) {
                                     vectorSize += 10000;
